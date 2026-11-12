@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sentence-link visualization — 浑然一体</title>
+<style>
+  :root{
+    --bg:#0e1117; --panel:#161b24; --panel2:#1b2230; --line:#2a3346;
+    --ink:#e6edf7; --dim:#93a1b8; --accent:#7aa2ff;
+    --wk:#4cc2ff;   /* West Kowloon 西九龙 */
+    --hg:#ffb454;   /* Huanggang 黄冈 */
+    --lw:#5ee0a0;   /* Lo Wu 罗湖 */
+    --sz:#ffd166;   /* Shenzhen / changes 深圳·改变 */
+    --theme:#c792ea;/* shared-theme bridge 同一主题 */
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    min-height:100vh; display:flex; flex-direction:column;
+  }
+  header.top{
+    position:sticky; top:0; z-index:30;
+    background:rgba(14,17,23,.96); border-bottom:1px solid var(--line);
+    display:flex; align-items:center; gap:12px; padding:10px 16px; flex-wrap:wrap;
+  }
+  header.top h1{font-size:15px; margin:0; font-weight:650; letter-spacing:.2px}
+  header.top h1 .zh{color:var(--accent); font-weight:700}
+  .controls{display:flex; align-items:center; gap:8px; margin-left:auto; flex-wrap:wrap}
+  button{
+    background:var(--panel2); color:var(--ink); border:1px solid var(--line);
+    border-radius:8px; padding:6px 12px; font-size:13px; cursor:pointer;
+  }
+  button:hover{border-color:var(--accent); color:#fff}
+  button.primary{background:#24407a; border-color:#38599c}
+  input[type=range]{width:150px; accent-color:var(--accent)}
+  .counter{font-size:12px; color:var(--dim); min-width:52px; text-align:center}
+  .spd{display:flex; gap:4px}
+  .spd button{padding:5px 8px; font-size:12px}
+  .spd button.on{background:#24407a; border-color:var(--accent)}
+
+  main.layout{display:flex; gap:16px; padding:16px; align-items:flex-start; flex:1}
+  .stage{flex:1 1 auto; min-width:0}
+  .rail{
+    flex:0 0 320px; position:sticky; top:66px;
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:14px; max-height:calc(100vh - 90px); overflow:auto;
+  }
+  .rail .tag{
+    display:inline-block; font-size:11px; letter-spacing:.4px; text-transform:uppercase;
+    padding:2px 8px; border-radius:999px; background:#243049; color:var(--accent);
+    border:1px solid var(--line); margin-bottom:8px;
+  }
+  .rail h2{font-size:15px; margin:0 0 8px; line-height:1.4}
+  .rail .w{font-size:13px; color:var(--dim); margin:0 0 10px; line-height:1.55}
+  .rail .h{font-size:14px; margin:0; line-height:1.7; color:#dbe6f7}
+  .rail .h b{color:var(--sz)}
+  .rail .zh-note{
+    margin-top:12px; padding-top:10px; border-top:1px dashed var(--line);
+    font-size:12px; color:var(--dim); line-height:1.6;
+  }
+
+  /* ---------- letter stage ---------- */
+  .letter{
+    position:relative; background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:18px 74px 18px 70px; min-height:520px;
+  }
+  svg#wires{position:absolute; inset:0; width:100%; height:100%; pointer-events:none; overflow:visible}
+  svg#wires path{
+    fill:none; stroke-width:2.5; stroke-linecap:round;
+    transition:stroke-dashoffset .9s ease, opacity .4s ease;
+    opacity:0;
+  }
+  svg#wires path.on{opacity:1}
+  svg#wires path.theme{stroke:var(--theme)}
+  svg#wires path.conv-wk{stroke:var(--wk)}
+  svg#wires path.conv-hg{stroke:var(--hg)}
+  svg#wires path.conv-lw{stroke:var(--lw)}
+  svg#wires path.arrowhead{marker-end:url(#ah-theme)}
+  svg#wires path.conv-wk{marker-end:url(#ah-wk)}
+  svg#wires path.conv-hg{marker-end:url(#ah-hg)}
+  svg#wires path.conv-lw{marker-end:url(#ah-lw)}
+
+  .wlabel{
+    position:absolute; z-index:5; transform:translate(-100%,-50%);
+    background:#241a33; color:#e9d5ff; border:1px solid var(--theme);
+    border-radius:8px; padding:4px 10px; font-size:12.5px; white-space:nowrap;
+    opacity:0; transition:opacity .5s ease; pointer-events:none;
+    box-shadow:0 4px 14px rgba(0,0,0,.4);
+  }
+  .wlabel.on{opacity:1}
+  .wlabel.small{font-size:11.5px; background:#12233a; border-color:var(--accent); color:#cfe0ff}
+
+  .sent{
+    position:relative; background:var(--panel2); border:1px solid var(--line);
+    border-radius:12px; padding:14px 16px 14px 16px; margin-bottom:14px;
+    font-size:16px; line-height:1.75; opacity:0; transform:translateY(14px);
+    transition:opacity .6s ease, transform .6s ease, border-color .6s ease;
+  }
+  .sent.show{opacity:1; transform:none}
+  .sent .badge{
+    position:absolute; left:-58px; top:14px; width:44px; height:44px;
+    display:flex; align-items:center; justify-content:center; font-size:20px;
+    background:var(--panel2); border:1px solid var(--line); border-radius:10px;
+    color:var(--dim);
+  }
+  .sent .phase{
+    display:block; font-size:12.5px; color:var(--dim); margin-bottom:6px;
+    letter-spacing:.2px;
+  }
+  .sent .phase b{color:var(--ink)}
+  #s1.show{border-color:#2b4a66}
+  #s2.show{border-color:#5a4526}
+  #s3.show{border-color:#28503f}
+  #s4.show{border-color:#3d3560}
+
+  .p{border-radius:4px; padding:1px 2px; font-weight:600}
+  .p.wk{color:var(--wk)} .p.hg{color:var(--hg)} .p.lw{color:var(--lw)}
+  .tok{
+    border-radius:4px; padding:1px 3px; color:var(--sz); font-weight:650;
+    background:transparent; box-shadow:inset 0 -2px 0 rgba(255,209,102,0);
+    transition:background .5s ease, box-shadow .5s ease, text-shadow .5s ease;
+  }
+  .hl .tok{
+    background:rgba(255,209,102,.16);
+    box-shadow:inset 0 -2px 0 rgba(255,209,102,.85);
+    text-shadow:0 0 12px rgba(255,209,102,.55);
+  }
+  .hl .p{ text-shadow:0 0 10px currentColor }
+
+  /* mechanism chain (Phase C) */
+  #mech{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    background:#101c18; border:1px solid #28503f; border-radius:10px;
+    padding:10px 12px; margin:-6px 0 14px 0;
+    opacity:0; max-height:0; overflow:hidden; transform:translateY(-6px);
+    transition:opacity .5s ease, max-height .5s ease, transform .5s ease, margin .5s ease, padding .5s ease;
+  }
+  #mech.show{opacity:1; max-height:200px; transform:none}
+  #mech .chip{
+    font-size:13px; padding:6px 10px; border-radius:8px; border:1px solid var(--line);
+    background:#16241f; color:#d8ffee; opacity:0; transform:translateX(-8px);
+    transition:opacity .45s ease, transform .45s ease;
+  }
+  #mech.show .chip{opacity:1; transform:none}
+  #mech.show .chip:nth-child(1){transition-delay:.15s}
+  #mech.show .chip:nth-child(2){transition-delay:.75s}
+  #mech.show .chip:nth-child(3){transition-delay:1.35s}
+  #mech.show .chip:nth-child(4){transition-delay:1.95s}
+  #mech .chip b{color:var(--lw)}
+  #mech .arw{font-size:14px; color:var(--lw); opacity:0; transition:opacity .4s ease}
+  #mech.show .arw{opacity:1}
+  #mech.show .arw:nth-of-type(1){transition-delay:.55s}
+  #mech.show .arw:nth-of-type(2){transition-delay:1.15s}
+  #mech.show .arw:nth-of-type(3){transition-delay:1.75s}
+  #mech .cap{font-size:12px; color:#7fbfa5; width:100%}
+
+  /* final banner */
+  #final{
+    margin-top:6px; text-align:center; padding:16px 12px; border-radius:12px;
+    border:1px solid var(--theme); background:linear-gradient(180deg,#1d1630,#161b24);
+    opacity:0; transform:scale(.96); transition:opacity .7s ease, transform .7s ease;
+  }
+  #final.show{opacity:1; transform:none}
+  #final .big{font-size:26px; font-weight:750; color:#e9d5ff; letter-spacing:2px}
+  #final .sub{font-size:14px; color:var(--dim); margin-top:6px}
+  #final .sub b{color:var(--sz)}
+  #final .places{margin-top:10px; font-size:13px; display:flex; gap:14px; justify-content:center; flex-wrap:wrap}
+  #final .places i{font-style:normal; font-weight:650}
+  #final .places .i-wk{color:var(--wk)} #final .places .i-hg{color:var(--hg)} #final .places .i-lw{color:var(--lw)}
+
+  .signoff{
+    font-size:14px; color:var(--dim); margin-top:10px; padding-left:2px;
+    opacity:0; transition:opacity .6s ease;
+  }
+  .signoff.show{opacity:1}
+  footer{padding:10px 16px 20px; font-size:12px; color:var(--dim)}
+  footer a{color:var(--accent)}
+  @media (max-width:1080px){
+    main.layout{flex-direction:column}
+    .rail{flex:1 1 auto; position:static; width:100%; max-height:none}
+    .letter{padding-left:18px; padding-right:18px}
+    .sent .badge{position:static; margin-bottom:8px}
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Sentence-link visualization · <span class="zh">浑然一体 — 意识上的关联</span></h1>
+  <div class="controls">
+    <button id="play" class="primary">⏸ Pause</button>
+    <button id="replay">↺ Replay</button>
+    <button id="prev" title="step back">◀</button>
+    <button id="next" title="step forward">▶</button>
+    <input type="range" id="scrub" min="0" max="14" value="0" />
+    <span class="counter" id="counter">1 / 15</span>
+    <span class="spd">
+      <button data-s="1" class="on">1×</button>
+      <button data-s="1.7">1.7×</button>
+      <button data-s="2.6">2.6×</button>
+    </span>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="stage">
+    <div class="letter" id="letter">
+      <svg id="wires" aria-hidden="true">
+        <defs>
+          <marker id="ah-theme" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="#c792ea"></path>
+          </marker>
+          <marker id="ah-wk" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="#4cc2ff"></path>
+          </marker>
+          <marker id="ah-hg" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="#ffb454"></path>
+          </marker>
+          <marker id="ah-lw" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="#5ee0a0"></path>
+          </marker>
+        </defs>
+        <path id="l-theme12" class="theme arrowhead"></path>
+        <path id="l-theme23" class="theme arrowhead"></path>
+        <path id="l-conv1" class="conv-wk"></path>
+        <path id="l-conv2" class="conv-hg"></path>
+        <path id="l-conv3" class="conv-lw"></path>
+      </svg>
+
+      <div class="wlabel" id="lb-theme12">同一主题：都需要深圳的改变</div>
+      <div class="wlabel" id="lb-theme23">同一主题线延伸 → 罗湖</div>
+      <div class="wlabel small" id="lb-conv1">西九龙 → 请求</div>
+      <div class="wlabel small" id="lb-conv2">黄冈 → 请求</div>
+      <div class="wlabel small" id="lb-conv3">罗湖 → 请求</div>
+
+      <div class="sent" id="s1">
+        <span class="badge">①</span>
+        <span class="phase">Phase A · <b>① 西九龙 → 需要深圳改变</b></span>
+        We refer to the letter on 11 Nov asking for vending machines at <span class="p wk" id="p-wk">West Kowloon Station</span>. Since the area is under jurisdiction of Mainland China, <span class="tok" id="t1-chg">changes</span> have to be introduced by <span class="tok" id="t1-sz">Shenzhen authorities</span>.
+      </div>
+
+      <div class="sent" id="s2">
+        <span class="badge">②</span>
+        <span class="phase">Phase B · <b>② 黄冈 → 同样需要深圳的改变</b></span>
+        Similarly, in the new <span class="p hg" id="p-hg">Huanggang checkpoint</span>, luggage had to be scanned twice when leaving <span class="tok" id="t2-sz1">Shenzhen</span> with no small items exempted, calling for <span class="tok" id="t2-chg">changes</span> on the <span class="tok" id="t2-sz2">Shenzhen</span> side.
+      </div>
+
+      <div id="mech">
+        <span class="chip">香港政府驻深圳的<b>联络办事处</b> · Shenzhen Liaison Office</span>
+        <span class="arw">──促成→</span>
+        <span class="chip">深圳当局 · <b>Shenzhen</b></span>
+        <span class="arw">──改变→</span>
+        <span class="chip">罗湖行李检查改善 · <b>Lo Wu</b></span>
+        <span class="cap">机制：联络办事处 → 深圳 → 罗湖的改变（改变如何可能）</span>
+      </div>
+
+      <div class="sent" id="s3">
+        <span class="badge">③</span>
+        <span class="phase">Phase C · <b>③ 罗湖 → 也是深圳的改变</b></span>
+        Last year, addressing concerns of travellers, the <span class="tok" id="t3-lo">Shenzhen Liaison Office</span> of the Hong Kong government successfully negotiated with <span class="tok" id="t3-sz">Shenzhen Authorities</span> to improve the luggage scanner setup in <span class="p lw" id="p-lw">Lo Wu</span>.
+      </div>
+
+      <div class="sent" id="s4">
+        <span class="badge">④</span>
+        <span class="phase">Phase D · <b>④ 中心论调 / 请求</b></span>
+        <span id="s4-ask">We urge the <span class="tok" id="t4-sz">Shenzhen Office</span> to extend the good work to <span class="p wk">West Kowloon Station</span> and <span class="p hg">Huanggang checkpoint</span>.</span>
+      </div>
+
+      <div class="signoff" id="signoff">Yantong Liao, Jingbo Sun and Wenxuan Zhang, Kowloon Tong</div>
+
+      <div id="final">
+        <div class="big">浑然一体</div>
+        <div class="sub">四句短句由 <b>意识上的关联</b> 绑成一个整体 — semantic cohesion</div>
+        <div class="places">
+          <i class="i-wk">① 西九龙 West Kowloon</i>
+          <i class="i-hg">② 黄冈 Huanggang</i>
+          <i class="i-lw">③ 罗湖 Lo Wu</i>
+          <i>→ ④ 中心论调 the ask</i>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <aside class="rail" id="rail">
+    <span class="tag" id="annTag">node</span>
+    <h2 id="annTitle">四句话 · 一封信</h2>
+    <p class="w" id="annWhat">The letter sits whole but unexamined.</p>
+    <p class="h" id="annHow">这封信只有四句短句 —— 先看它们如何各自成立。</p>
+    <div class="zh-note">分析框架：Simon Wang（HKBU）· S1 西九龙 · S2 黄冈 · S3 罗湖 · S4 请求</div>
+  </aside>
+</main>
+
+<footer>
+  Source: <a href="https://github.com/tesolchina/simongtd/issues/351">simongtd#351</a> · letter: <a href="https://github.com/tesolchina/gcap3056-22726/issues/19">gcap3056-22726#19</a> · self-contained, no network calls.
+</footer>
+
+<script>
+"use strict";
+/* ---------- script data (beats) ---------- */
+const SCRIPT = [
+  { ms:2200, ann:{tag:"node", t:"四句话 · 一封信", w:"The whole letter appears, still unlinked.",
+    h:"这封信只有<b>四句短句</b> —— 先看它们如何各自成立，再看它们如何互相绑定。"} },
+
+  { ms:3400, show:1, ann:{tag:"out", t:"① 西九龙 → 需要深圳改变", w:"S1 appears: the West Kowloon Station request.",
+    h:"S1 讲<b>西九龙</b>的情况：该区属内地管辖，改变须由<b>深圳那边</b>（Shenzhen authorities）引入。"} },
+
+  { ms:2800, hl:["s1"], ann:{tag:"det", t:"共享词：Shenzhen / changes", w:"Glow on the shared tokens of S1.",
+    h:"高亮 <b>Shenzhen</b> 与 <b>changes</b> —— 这两个词是全文的骨架。"} },
+
+  { ms:3400, show:2, ann:{tag:"out", t:"② 黄冈 → 同样需要深圳的改变", w:"S2 appears: a completely different place.",
+    h:"S2 讲<b>黄冈</b>（Huanggang），一个完全不同的地方，却仍落在<b>深圳的改变</b>上。"} },
+
+  { ms:2800, hl:["s1","s2"], ann:{tag:"det", t:"共享词再次出现", w:"The same tokens light up in S2.",
+    h:"S2 同样出现 <b>Shenzhen</b> / <b>changes</b> —— 词形重合是关联的第一层证据。"} },
+
+  { ms:4600, link:"theme12", ann:{tag:"ai", t:"同一主题：都需要深圳的改变", w:"A bridge is drawn from S1's tokens to S2's.",
+    h:"<b>核心</b>：S1 与 S2 地方不同，却因「<b>都需要真正的改变</b>」而连起来 —— 这就是意识上的关联。"} },
+
+  { ms:3400, show:3, ann:{tag:"out", t:"③ 罗湖 → 也是深圳的改变", w:"S3 appears: yet another matter, Lo Wu.",
+    h:"S3 讲<b>罗湖</b>（Lo Wu），另一件事 —— 但同样是一次<b>深圳的改变</b>。"} },
+
+  { ms:2600, hl:["s1","s2","s3"], ann:{tag:"det", t:"共享词第三次出现", w:"Shenzhen / changes glow in S3 too.",
+    h:"<b>Shenzhen Authorities</b> 再次出现 —— 三句话共享同一组词。"} },
+
+  { ms:5200, mech:true, ann:{tag:"det", t:"促成改变的机制", w:"Liaison Office → Shenzhen → change at Lo Wu.",
+    h:"香港政府驻深圳的<b>联络办事处</b>（Shenzhen Liaison Office）<b>促成</b>了罗湖的改变 —— 这是「改变如何可能」的机制。"} },
+
+  { ms:4000, link:"theme23", ann:{tag:"ai", t:"同一主题线延伸到 S3", w:"The theme bridge extends from S2 to S3.",
+    h:"S3 也接上同一条主题线：三句都在讲<b>深圳那边的改变</b>。"} },
+
+  { ms:3400, show:4, ann:{tag:"out", t:"④ 中心论调 / 请求", w:"S4 appears — the ask that names all three places.",
+    h:"S4 把前三句全部串起来：请深圳办公室把罗湖的好做法<b>推广到西九龙与黄冈</b> —— 全文中心论调。"} },
+
+  { ms:2800, link:"conv1", ann:{tag:"out", t:"西九龙 → S4", w:"West Kowloon converges into the ask.",
+    h:"<b>西九龙</b>（S1）连回 S4 的请求 —— 问题与要求闭环。"} },
+
+  { ms:2800, link:"conv2", ann:{tag:"out", t:"黄冈 → S4", w:"Huanggang converges into the ask.",
+    h:"<b>黄冈</b>（S2）同样连回 S4 —— 不同地方，同一要求。"} },
+
+  { ms:2800, link:"conv3", ann:{tag:"out", t:"罗湖 → S4", w:"Lo Wu converges into the ask.",
+    h:"<b>罗湖</b>（S3）作为已成功的先例，连回 S4 —— 「extend the good work」。"} },
+
+  { ms:6000, final:true, signoff:true, ann:{tag:"out", t:"浑然一体 — 意识上的关联", w:"Every link lit; the whole letter is composed.",
+    h:"四句短句由 <b>意识上的关联</b> 绑成一个整体：<b>浑然一体</b>。动画在此停住，可按 ↺ Replay 重播。"} }
+];
+
+/* ---------- state = fold over beats ---------- */
+const $ = id => document.getElementById(id);
+let cur = 0, playing = true, speed = 1, timer = null;
+
+function build(i){
+  const s = {show:0, hl:[], mech:false, links:[], final:false, signoff:false, ann:SCRIPT[0].ann};
+  for (let j = 0; j <= i && j < SCRIPT.length; j++){
+    const b = SCRIPT[j];
+    if (b.show) s.show = Math.max(s.show, b.show);
+    if (b.hl) s.hl = b.hl.slice();
+    if (b.mech) s.mech = true;
+    if (b.link) s.links.push(b.link);
+    if (b.final) s.final = true;
+    if (b.signoff) s.signoff = true;
+    if (b.ann) s.ann = b.ann;
+  }
+  return s;
+}
+
+/* ---------- link geometry ---------- */
+const LINKS = {
+  theme12:{from:"t1-sz", to:"t2-sz1", path:"l-theme12", label:"lb-theme12", lx:0.5, ly:0},
+  theme23:{from:"t2-chg", to:"t3-sz", path:"l-theme23", label:"lb-theme23", lx:0.5, ly:0},
+  conv1:{from:"p-wk", to:"s4-ask", path:"l-conv1", label:"lb-conv1", lx:0.5, ly:0},
+  conv2:{from:"p-hg", to:"s4-ask", path:"l-conv2", label:"lb-conv2", lx:0.5, ly:0},
+  conv3:{from:"p-lw", to:"s4-ask", path:"l-conv3", label:"lb-conv3", lx:0.5, ly:0}
+};
+
+function layout(){
+  const box = $("letter").getBoundingClientRect();
+  const gx = box.width - 34;              /* right gutter: wires never cross the sentence text */
+  Object.keys(LINKS).forEach(k => {
+    const L = LINKS[k];
+    const a = document.getElementById(L.from), b = document.getElementById(L.to);
+    const p = $(L.path), lb = $(L.label);
+    if (!a || !b || !p) return;
+    const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+    const x1 = ra.right - box.left, y1 = ra.top - box.top + ra.height/2;
+    const x2 = rb.right - box.left + 6, y2 = rb.top - box.top + rb.height/2;
+    const d = "M " + x1 + " " + y1 +
+              " C " + (x1 + 26) + " " + y1 + ", " + (gx - 26) + " " + y1 + ", " + gx + " " + y1 +
+              " L " + gx + " " + y2 +
+              " C " + (gx - 26) + " " + y2 + ", " + (x2 + 26) + " " + y2 + ", " + x2 + " " + y2;
+    p.setAttribute("d", d);
+    const len = p.getTotalLength ? p.getTotalLength() : 800;
+    p.style.strokeDasharray = len;
+    p.style.strokeDashoffset = p.classList.contains("on") ? 0 : len;
+    if (lb){
+      lb.style.left = (gx - 6) + "px";
+      lb.style.top  = ((y1 + y2) / 2) + "px";
+    }
+  });
+}
+
+/* ---------- render ---------- */
+function render(){
+  const s = build(cur);
+  for (let n = 1; n <= 4; n++){
+    const el = $("s" + n);
+    el.classList.toggle("show", n <= s.show);
+    el.classList.toggle("hl", s.hl.indexOf("s" + n) !== -1);
+  }
+  $("mech").classList.toggle("show", s.mech);
+  $("final").classList.toggle("show", s.final);
+  $("signoff").classList.toggle("show", s.signoff);
+
+  Object.keys(LINKS).forEach(k => {
+    const on = s.links.indexOf(k) !== -1;
+    const p = $(LINKS[k].path), lb = $(LINKS[k].label);
+    if (p) p.classList.toggle("on", on);
+    if (lb) lb.classList.toggle("on", on);
+  });
+  /* dashoffset must be set AFTER the class toggle, from the element's length */
+
+  $("annTag").textContent = s.ann.tag;
+  $("annTitle").textContent = s.ann.t;
+  $("annWhat").innerHTML = s.ann.w;
+  $("annHow").innerHTML = s.ann.h;
+
+  $("scrub").value = cur;
+  $("counter").textContent = (cur + 1) + " / " + SCRIPT.length;
+  $("play").textContent = playing ? "⏸ Pause" : "▶ Play";
+  layout();
+}
+
+/* ---------- transport ---------- */
+function clearTimer(){ if (timer){ clearTimeout(timer); timer = null; } }
+function schedule(){
+  clearTimer();
+  if (!playing) return;
+  if (cur >= SCRIPT.length - 1){ playing = false; render(); return; }   /* stop at final frame */
+  const dur = SCRIPT[cur].ms / speed;
+  timer = setTimeout(() => { if (!playing) return; if (cur >= SCRIPT.length - 1){ playing = false; render(); return; } seek(cur + 1, true); }, dur);
+}
+function seek(i, keepPlay){
+  cur = Math.max(0, Math.min(SCRIPT.length - 1, i));
+  clearTimer();
+  render();
+  if (keepPlay && playing) schedule();
+}
+function setPlaying(v){
+  playing = v;
+  clearTimer();
+  render();
+  if (playing) schedule();
+}
+function replay(){ cur = 0; playing = true; clearTimer(); render(); schedule(); }
+
+$("play").addEventListener("click", () => {
+  if (!playing && cur >= SCRIPT.length - 1){ replay(); return; }
+  setPlaying(!playing);
+});
+$("replay").addEventListener("click", replay);
+$("prev").addEventListener("click", () => { setPlaying(false); seek(cur - 1); });
+$("next").addEventListener("click", () => { setPlaying(false); seek(cur + 1); });
+$("scrub").addEventListener("input", e => { setPlaying(false); seek(parseInt(e.target.value, 10)); });
+document.querySelectorAll(".spd button").forEach(b => {
+  b.addEventListener("click", () => {
+    speed = parseFloat(b.dataset.s);
+    document.querySelectorAll(".spd button").forEach(x => x.classList.toggle("on", x === b));
+    if (playing){ clearTimer(); schedule(); }
+  });
+});
+window.addEventListener("resize", layout);
+
+/* autoplay on load — JS timers are not blocked by autoplay policy */
+seek(0, true);
+setTimeout(layout, 60);
+</script>
+</body>
+</html>
